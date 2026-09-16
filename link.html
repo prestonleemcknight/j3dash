@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J3 — Bank Feed</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,600&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --ground:#fffdf9; --surface:#f6f3ec; --ink:#14130f; --muted:#6d685c;
+    --line:#e3ded2; --gold:#a8801f; --goldink:#7a5c0f;
+    --go:#3c6b4f; --gowash:#ecf3ee; --warn:#a8632b; --warnwash:#fbefe6;
+    --display:"Bodoni Moda",Georgia,serif;
+    --body:"Inter",system-ui,-apple-system,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --ground:#0d0d0e; --surface:#17171a; --ink:#f3f1eb; --muted:#9a958b;
+    --line:#2a2a2c; --gold:#d3ab4e; --goldink:#e7c77f;
+    --go:#86bd9a; --gowash:#17241c; --warn:#dd9a63; --warnwash:#2c1e14;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);
+    font-size:15.5px;line-height:1.6}
+  .wrap{max-width:1000px;margin:0 auto;padding:40px 20px 80px}
+  h1{font-family:var(--display);font-size:clamp(28px,6vw,38px);line-height:1.1;margin:0}
+  .sub{color:var(--muted);margin-top:8px;max-width:62ch}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:22px;margin-top:26px}
+  .card h2{font-family:var(--display);font-size:20px;margin:0 0 4px}
+  .card p{color:var(--muted);margin:0 0 14px;font-size:14.5px}
+  button{font-family:var(--body);font-size:14.5px;font-weight:600;cursor:pointer;
+    border-radius:8px;padding:11px 18px;border:1px solid var(--gold);
+    background:var(--gold);color:#fff}
+  button.ghost{background:transparent;color:var(--goldink);border-color:var(--line)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input{font-family:var(--body);font-size:15px;padding:11px 13px;border-radius:8px;
+    border:1px solid var(--line);background:var(--ground);color:var(--ink);width:280px;max-width:100%}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .note{font-size:13.5px;margin-top:12px;padding:11px 13px;border-radius:8px;
+    border-left:3px solid var(--warn);background:var(--warnwash);color:var(--ink)}
+  .note.good{border-color:var(--go);background:var(--gowash)}
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin-top:16px}
+  table{border-collapse:collapse;width:100%;min-width:640px}
+  th{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--muted);text-align:left;font-weight:500;padding:11px 13px;
+    background:var(--ground);border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:12px 13px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top}
+  tbody tr:last-child td{border-bottom:none}
+  td.amt{font-family:var(--mono);font-weight:500;white-space:nowrap;text-align:right}
+  td.who{font-weight:600}
+  td.desc{color:var(--muted);font-family:var(--mono);font-size:11.5px}
+  .chip{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+    text-transform:uppercase;padding:3px 8px;border-radius:999px;
+    border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .empty{padding:34px 20px;text-align:center;color:var(--muted);font-size:14.5px}
+  .hide{display:none}
+  .who-mini{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Bank feed</h1>
+  <p class="sub">Connect the business checking account once, then watch what actually arrives.
+  Every incoming deposit shows up here exactly as the bank describes it — which is how we find
+  out whether a customer's name really survives the trip.</p>
+
+  <div class="card" id="authCard">
+    <h2>Sign in</h2>
+    <p>Same whitelist as the dashboard. A link gets emailed to you.</p>
+    <div class="row">
+      <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
+      <button id="sendLink">Email me a link</button>
+    </div>
+    <div id="authNote" class="note hide"></div>
+  </div>
+
+  <div class="card hide" id="connectCard">
+    <h2>Connected accounts</h2>
+    <p>Linking opens your bank's own login. Credentials go to the bank, never to us —
+    we only ever receive a token.</p>
+    <div id="items"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="connect">Connect a bank account</button>
+      <button id="refresh" class="ghost">Refresh feed</button>
+      <button id="signout" class="ghost">Sign out</button>
+    </div>
+    <div id="linkNote" class="note hide"></div>
+    <div class="who-mini" id="whoami"></div>
+  </div>
+
+  <div class="card hide" id="feedCard">
+    <h2>Money in</h2>
+    <p>Incoming deposits only — anything leaving the account is ignored. Nothing here is
+    attached to a customer yet, because no plans have been entered. That is expected:
+    right now this is a raw look at the feed.</p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Who the bank says sent it</th>
+            <th>Rail</th>
+            <th style="text-align:right">Amount</th>
+            <th>Raw description</th>
+          </tr>
+        </thead>
+        <tbody id="feed"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="feedEmpty">
+      Nothing yet. After you link an account, Plaid pulls roughly 90 days of history —
+      it usually lands within a minute or two. Hit <b>Refresh feed</b>.
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+<script>
+const SUPABASE_URL = "https://kijmiqgsxhmdihhttuug.supabase.co";
+const SUPABASE_KEY = "sb_publishable_ds7G7k9TFVyt5UG6VXyxBA_TWG39Fa6";
+const FN = SUPABASE_URL + "/functions/v1/plaid-link";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = (id) => document.getElementById(id);
+const show = (el, on) => el.classList.toggle("hide", !on);
+
+function note(el, msg, good) {
+  el.textContent = msg;
+  el.classList.toggle("good", !!good);
+  show(el, true);
+}
+
+function money(cents) {
+  return "$" + (cents / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+}
+
+function prettyDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", {
+    timeZone: "UTC", month: "short", day: "numeric", year: "numeric",
+  });
+}
+
+function rail(desc) {
+  const d = (desc || "").toLowerCase();
+  if (d.includes("zelle")) return "Zelle";
+  if (d.includes("venmo")) return "Venmo";
+  if (d.includes("cash app") || d.includes("cashapp") || d.includes("square cash")) return "Cash App";
+  if (d.includes("apple")) return "Apple";
+  return "Other";
+}
+
+$("sendLink").onclick = async () => {
+  const email = $("email").value.trim();
+  if (!email) return note($("authNote"), "Enter your email first.");
+  $("sendLink").disabled = true;
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.href.split("#")[0] },
+  });
+  $("sendLink").disabled = false;
+  note($("authNote"),
+    error ? error.message : "Check your email — and your spam folder.",
+    !error);
+};
+
+$("signout").onclick = async () => {
+  await sb.auth.signOut();
+  location.reload();
+};
+
+async function callFn(action, extra) {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error("not signed in");
+  const res = await fetch(FN, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: "Bearer " + session.access_token,
+      apikey: SUPABASE_KEY,
+    },
+    body: JSON.stringify(Object.assign({ action }, extra || {})),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || res.statusText);
+  return json;
+}
+
+$("connect").onclick = async () => {
+  const btn = $("connect");
+  btn.disabled = true;
+  note($("linkNote"), "Getting things ready…");
+  try {
+    const { link_token } = await callFn("create_link_token");
+    const handler = Plaid.create({
+      token: link_token,
+      onSuccess: async (public_token) => {
+        note($("linkNote"), "Saving the connection…");
+        try {
+          const r = await callFn("exchange", { public_token });
+          note($("linkNote"),
+            "Linked " + (r.institution || "the account") +
+            ". Plaid is pulling history now — give it a minute, then hit Refresh feed.",
+            true);
+          await loadItems();
+        } catch (e) {
+          note($("linkNote"), "Link succeeded but saving failed: " + e.message);
+        }
+        btn.disabled = false;
+      },
+      onExit: (err) => {
+        note($("linkNote"), err ? ("Stopped: " + (err.display_message || err.error_message)) : "Closed without linking.");
+        btn.disabled = false;
+      },
+    });
+    handler.open();
+  } catch (e) {
+    note($("linkNote"), e.message);
+    btn.disabled = false;
+  }
+};
+
+async function loadItems() {
+  try {
+    const { items } = await callFn("list");
+    if (!items.length) {
+      $("items").innerHTML = '<span class="chip">No account linked yet</span>';
+      return;
+    }
+    $("items").innerHTML = items.map((i) =>
+      '<div style="margin-bottom:8px"><b>' +
+      (i.institution_name || i.label) + '</b> ' +
+      '<span class="chip">' + i.status + '</span> ' +
+      '<span class="chip">' +
+      (i.last_synced_at ? "synced " + new Date(i.last_synced_at).toLocaleString() : "never synced") +
+      '</span></div>'
+    ).join("");
+  } catch (e) {
+    $("items").innerHTML = '<span class="chip">' + e.message + '</span>';
+  }
+}
+
+async function loadFeed() {
+  const { data, error } = await sb
+    .from("unmatched_payments")
+    .select("paid_on,amount_cents,counterparty_name,description,source")
+    .order("paid_on", { ascending: false })
+    .limit(200);
+
+  const rows = (data || []);
+  show($("feedEmpty"), rows.length === 0);
+
+  if (error) {
+    $("feed").innerHTML = "";
+    $("feedEmpty").textContent = error.message;
+    show($("feedEmpty"), true);
+    return;
+  }
+
+  $("feed").innerHTML = rows.map((r) =>
+    "<tr>" +
+    "<td>" + prettyDate(r.paid_on) + "</td>" +
+    '<td class="who">' + (r.counterparty_name || "—") + "</td>" +
+    '<td><span class="chip">' + rail(r.description) + "</span></td>" +
+    '<td class="amt">' + money(r.amount_cents) + "</td>" +
+    '<td class="desc">' + (r.description || "") + "</td>" +
+    "</tr>"
+  ).join("");
+}
+
+$("refresh").onclick = () => { loadItems(); loadFeed(); };
+
+sb.auth.onAuthStateChange(async (_e, session) => {
+  const signedIn = !!session;
+  show($("authCard"), !signedIn);
+  show($("connectCard"), signedIn);
+  show($("feedCard"), signedIn);
+  if (signedIn) {
+    $("whoami").textContent = "Signed in as " + session.user.email;
+    await loadItems();
+    await loadFeed();
+  }
+});
+
+sb.auth.getSession().then(({ data: { session } }) => {
+  if (!session) { show($("authCard"), true); }
+});
+</script>
+</body>
+</html>
