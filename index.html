@@ -31,7 +31,7 @@ body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);
 h1,h2,h3{margin:0;text-wrap:balance}
 button{font:inherit;color:inherit}
 input,select,textarea{font:inherit;color:inherit;background:var(--ground);border:1px solid var(--line2);border-radius:8px;padding:9px 11px;width:100%}
-input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+input:focus-visible,select:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 header.top{position:sticky;top:0;z-index:40;background:var(--ground);border-bottom:1px solid var(--line)}
 .topin{max-width:1140px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .mark{font-family:var(--display);font-size:22px;font-weight:600;margin-right:auto}
@@ -41,7 +41,6 @@ header.top{position:sticky;top:0;z-index:40;background:var(--ground);border-bott
 .btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
 .btn.ghost:hover{background:var(--surface);color:var(--ink)}
 .btn.sm{padding:5px 10px;font-size:12.5px}
-.btn.danger{color:var(--over);border-color:var(--over)}
 .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:24px}
 .tile{background:var(--ground);padding:16px 18px}
 .tile .lab{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
@@ -56,16 +55,23 @@ section{margin-top:40px}
 .card{border:1px solid var(--line);border-radius:10px;background:var(--ground);padding:16px;display:grid;gap:12px}
 .card+.card{margin-top:12px}
 .card.unmatched{border-left:4px solid var(--gold)}
+.card.remind{border-left:4px solid var(--due)}
+.card.remind.late{border-left-color:var(--over)}
 .row{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
 .grow{flex:1 1 220px;min-width:0}
 .amt{font-family:var(--mono);font-size:21px;font-weight:600;font-variant-numeric:tabular-nums}
+.amtwrap{text-align:right}
+.amtwrap .w{font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
 .sub{font-size:13px;color:var(--muted);margin-top:2px}
+.who2{font-weight:600;font-size:15.5px}
+.msgbox{min-height:92px;resize:vertical;background:var(--surface);font-size:13.5px;line-height:1.55}
+.phone{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin-left:auto}
 .chip{display:inline-flex;align-items:center;font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid transparent;white-space:nowrap}
 .chip.over{background:var(--overwash);color:var(--over);border-color:var(--over)}
 .chip.due{background:var(--duewash);color:var(--due);border-color:var(--due)}
 .chip.ok{background:var(--okwash);color:var(--ok);border-color:var(--ok)}
 .chip.settled{background:var(--surface2);color:var(--muted);border-color:var(--line2)}
-.chip.gold{background:var(--goldwash);color:var(--goldink);border-color:var(--gold)}
+.chip.warn{background:var(--goldwash);color:var(--goldink);border-color:var(--gold)}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%;min-width:760px}
 th{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:500;padding:11px 14px;background:var(--surface);border-bottom:1px solid var(--line);white-space:nowrap}
@@ -101,7 +107,7 @@ label.f>span{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-tr
 </style>
 </head>
 <body>
-<div id="app"><div class="signin"><p class="hint">Loading…</p></div></div>
+<div id="app"><div class="signin"><p class="hint">Loading&hellip;</p></div></div>
 <div class="toast" id="toast"></div>
 <div id="overlay"></div>
 
@@ -112,10 +118,8 @@ label.f>span{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-tr
 "use strict";
 var CFG = window.__J3__;
 var sb = window.supabase.createClient(CFG.url, CFG.key);
-
 var state = { user:null, admin:false, plans:[], unmatched:[], settings:null };
 
-/* ---------- helpers ---------- */
 function money(c){
   c = Math.round(c||0);
   var s = c<0?"-":"", a = Math.abs(c);
@@ -137,21 +141,28 @@ function addDays(iso,n){
   return d.toISOString().slice(0,10);
 }
 function dayDiff(a,b){
-  return Math.round((new Date(a+"T00:00:00Z")-0-(new Date(b+"T00:00:00Z")-0))/86400000)*-1;
+  var pa=a.split("-"), pb=b.split("-");
+  return Math.round((Date.UTC(+pb[0],+pb[1]-1,+pb[2])-Date.UTC(+pa[0],+pa[1]-1,+pa[2]))/86400000);
 }
 function prettyDate(iso){
   if(!iso) return "—";
   var p=iso.split("-");
   return new Date(Date.UTC(+p[0],+p[1]-1,+p[2]))
+    .toLocaleDateString("en-US",{timeZone:"UTC",weekday:"short",month:"short",day:"numeric"});
+}
+function shortDate(iso){
+  if(!iso) return "—";
+  var p=iso.split("-");
+  return new Date(Date.UTC(+p[0],+p[1]-1,+p[2]))
     .toLocaleDateString("en-US",{timeZone:"UTC",month:"short",day:"numeric"});
 }
+function firstName(n){ return String(n||"").trim().split(/\s+/)[0] || "there"; }
 function toast(m){
   var t=document.getElementById("toast");
   t.textContent=m; t.classList.add("on");
   clearTimeout(t._t); t._t=setTimeout(function(){t.classList.remove("on")},2400);
 }
 
-/* ---------- plan math: the same rules as _shared/plan-math.ts ---------- */
 function position(plan, payments, today, lead){
   lead = lead==null?3:lead;
   var financed = Math.max(0, plan.price_cents - plan.deposit_cents);
@@ -159,11 +170,9 @@ function position(plan, payments, today, lead){
   if(financed>0 && plan.weekly_cents>0){
     var weeks = Math.ceil(financed/plan.weekly_cents);
     for(i=1;i<=weeks;i++){
-      sched.push({
-        n:i, due:addDays(plan.start_date,7*i),
+      sched.push({ n:i, due:addDays(plan.start_date,7*i),
         amount: i<weeks ? plan.weekly_cents : financed - plan.weekly_cents*(weeks-1),
-        applied:0, paid:false
-      });
+        applied:0, paid:false });
     }
   }
   var received = (payments||[]).reduce(function(s,p){return s+(p.amount_cents||0)},0);
@@ -181,17 +190,15 @@ function position(plan, payments, today, lead){
   var oldest = null;
   for(i=covered;i<sched.length;i++){ if(sched[i].due<=today){ oldest=sched[i].due; break; } }
   var daysLate = oldest ? dayDiff(oldest, today) : 0;
-
   var st;
   if(balance===0 || sched.length===0) st="paid_off";
   else if(dueNow>0 && daysLate>0) st="past_due";
   else if(dueNow>0) st="due_today";
   else if(next && dayDiff(today,next.due)<=lead) st="due_soon";
   else st="on_track";
-
   return { weeks:sched.length, covered:covered, paid:paid, balance:balance,
            dueNow:dueNow, nextDue:next?next.due:null, nextAmt:nextAmt,
-           daysLate:daysLate, state:st, schedule:sched,
+           daysLate:daysLate, state:st,
            pct: plan.price_cents>0 ? Math.min(100,Math.round(paid/plan.price_cents*100)) : 0 };
 }
 var LABEL = {past_due:"Past due", due_today:"Due today", due_soon:"Due soon",
@@ -202,11 +209,38 @@ function chip(p){
           : p.state==="paid_off" ? "settled" : "ok";
   var txt = LABEL[p.state];
   if(p.state==="past_due") txt = "Past due "+p.daysLate+"d";
-  if(p.state==="due_soon" && p.nextDue) txt = "Due "+prettyDate(p.nextDue);
+  if(p.state==="due_soon" && p.nextDue) txt = "Due "+shortDate(p.nextDue);
   return '<span class="chip '+cls+'">'+esc(txt)+'</span>';
 }
 
-/* ---------- data ---------- */
+/* ---- the reminder text. Same wording the automated sender will use, so
+   customers see one consistent message whether Juan sends it by hand today
+   or Twilio sends it once the campaign clears. ---- */
+function payMethods(s){
+  var m = [];
+  if(s.zelle_handle) m.push("Zelle "+s.zelle_handle);
+  if(s.cashapp_handle) m.push("Cash App "+s.cashapp_handle);
+  if(s.venmo_handle) m.push("Venmo "+s.venmo_handle);
+  if(s.applepay_handle) m.push("Apple Pay "+s.applepay_handle);
+  return m.length ? m.join(", ") : "Zelle, Cash App, Apple Pay or Venmo";
+}
+function buildMessage(p, pos, s){
+  var biz = s.business_name || "J3 Timeless Watches";
+  var amt = pos.dueNow > 0 ? pos.dueNow : pos.nextAmt;
+  var when;
+  if(pos.dueNow > 0 && pos.daysLate > 0){
+    when = "is past due ("+pos.daysLate+" day"+(pos.daysLate===1?"":"s")+")";
+  } else if(pos.dueNow > 0){
+    when = "is due today";
+  } else {
+    when = "is due "+prettyDate(pos.nextDue);
+  }
+  var after = Math.max(0, pos.balance - amt);
+  return biz+": Hi "+firstName(p.customer.name)+", your payment of "+money(amt)
+    + " on the "+(p.product||"your piece")+" "+when
+    + ". Balance after: "+money(after)+". Send by "+payMethods(s)+".";
+}
+
 function load(){
   return Promise.all([
     sb.from("plans").select("id,product,price_cents,deposit_cents,weekly_cents,start_date,status,notes,customer:customers(id,name,phone_e164,aliases,sms_consent,sms_opted_out_at),payments(id,amount_cents,paid_on,method,source)").order("created_at",{ascending:false}),
@@ -221,14 +255,11 @@ function load(){
   });
 }
 
-/* ---------- render ---------- */
 function render(){
   var today = todayISO();
-  var lead = state.settings ? state.settings.reminder_lead_days : 3;
-  var rows = state.plans.map(function(p){
-    return { p:p, pos:position(p, p.payments, today, lead) };
-  });
-
+  var s = state.settings || {};
+  var lead = s.reminder_lead_days==null ? 3 : s.reminder_lead_days;
+  var rows = state.plans.map(function(p){ return { p:p, pos:position(p, p.payments, today, lead) }; });
   var outstanding=0, collected=0, pastDue=0, pastDueN=0, activeN=0;
   rows.forEach(function(r){
     collected += r.pos.paid;
@@ -238,20 +269,27 @@ function render(){
     }
   });
 
-  var h = '';
-  h += '<header class="top"><div class="topin">'
+  var due = rows.filter(function(r){
+    return r.p.status==="active" &&
+      (r.pos.state==="past_due" || r.pos.state==="due_today" || r.pos.state==="due_soon");
+  }).sort(function(a,b){
+    var o = {past_due:0, due_today:1, due_soon:2};
+    var d = o[a.pos.state]-o[b.pos.state];
+    if(d) return d;
+    return b.pos.daysLate - a.pos.daysLate;
+  });
+
+  var h = '<header class="top"><div class="topin">'
      + '<span class="mark">J3 Payment Desk</span>'
      + '<button class="btn sm ghost" id="bSettings">Settings</button>'
      + '<button class="btn sm" id="bPay">Record payment</button>'
      + '<button class="btn primary" id="bNew">New plan</button>'
      + '<button class="btn sm ghost" id="bOut">Sign out</button>'
      + '</div></header><div class="wrap">';
-
-  if(state.settings && state.settings.sms_enabled === false){
-    h += '<div class="banner">Text reminders are <b>off</b> — nothing is sent to anyone. '
-       + 'They stay off until the Twilio campaign is approved and consent is recorded.</div>';
+  if(s.sms_enabled === false){
+    h += '<div class="banner">Automatic texts are <b>off</b> until the Twilio campaign is approved. '
+       + 'Until then, send the reminders below by hand — the wording is already written.</div>';
   }
-
   h += '<div class="tiles">'
      + tile("Outstanding", money0(outstanding), activeN+" active plan"+(activeN===1?"":"s"))
      + tile("Collected", money0(collected), "deposits + payments")
@@ -259,7 +297,47 @@ function render(){
      + tile("To confirm", String(state.unmatched.length), "payments needing a match", state.unmatched.length>0)
      + '</div>';
 
-  /* ---- the queue that matters: money we won't guess about ---- */
+  /* ---- reminders: the daily action ---- */
+  h += '<section><div class="sechead"><h2>Reminders to send</h2>'
+     + '<span class="count">'+(due.length ? due.length : "")+'</span>'
+     + '<span class="sp"></span><span class="hint">'
+     + new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})
+     + '</span></div>';
+  if(!due.length){
+    h += '<div class="tablewrap"><div class="empty">Nobody owes anything in the next '
+       + lead + ' days. This fills itself as due dates arrive.</div></div>';
+  } else {
+    h += due.map(function(r){
+      var p=r.p, pos=r.pos;
+      var late = pos.state==="past_due";
+      var amt = pos.dueNow>0 ? pos.dueNow : pos.nextAmt;
+      var whenTxt = late ? (pos.daysLate+" day"+(pos.daysLate===1?"":"s")+" past due")
+                  : pos.state==="due_today" ? "due today"
+                  : "due "+shortDate(pos.nextDue);
+      var consentWarn = "";
+      if(p.customer.sms_opted_out_at){
+        consentWarn = ' <span class="chip warn">opted out</span>';
+      } else if(!p.customer.sms_consent){
+        consentWarn = ' <span class="chip warn">no consent on file</span>';
+      }
+      return '<div class="card remind'+(late?" late":"")+'">'
+        + '<div class="row"><div class="grow">'
+          + '<div class="who2">'+esc(p.customer.name)+consentWarn+'</div>'
+          + '<div class="sub">'+esc(p.product)+' · '+esc(whenTxt)
+          + ' · balance '+money(pos.balance)+'</div>'
+        + '</div>'
+        + '<div class="amtwrap"><div class="amt">'+money(amt)+'</div>'
+        + '<div class="w">amount owed</div></div></div>'
+        + '<textarea class="msgbox" id="msg-'+esc(p.id)+'" rows="3">'+esc(buildMessage(p,pos,s))+'</textarea>'
+        + '<div class="row">'
+          + '<button class="btn primary sm" data-copy="'+esc(p.id)+'">Copy message</button>'
+          + '<button class="btn sm" data-payfor="'+esc(p.id)+'">Record payment</button>'
+          + '<span class="phone">'+(p.customer.phone_e164?esc(p.customer.phone_e164):"no phone on file")+'</span>'
+        + '</div></div>';
+    }).join("");
+  }
+  h += '</section>';
+
   h += '<section><div class="sechead"><h2>Payments to confirm</h2>'
      + '<span class="count">'+state.unmatched.length+'</span>'
      + '<span class="sp"></span><span class="hint">Money that arrived but could not be matched confidently</span></div>';
@@ -267,35 +345,29 @@ function render(){
     h += '<div class="tablewrap"><div class="empty">Nothing waiting. Payments that match a customer by name and amount are booked automatically.</div></div>';
   } else {
     h += state.unmatched.map(function(u){
-      var opts = rows.filter(function(r){return r.p.status==="active"})
-        .map(function(r){
-          var sel = (u.suggested_plan_id===r.p.id) ? " selected" : "";
-          return '<option value="'+esc(r.p.id)+'"'+sel+'>'+esc(r.p.customer.name)+' — '+esc(r.p.product)+' (owes '+money(r.pos.balance)+')</option>';
-        }).join("");
-      return '<div class="card unmatched">'
-        + '<div class="row"><div class="grow">'
-          + '<div class="amt">'+money(u.amount_cents)+'</div>'
-          + '<div class="sub">'+esc(u.counterparty_name||u.description||"no name on the transaction")+'</div>'
-          + '<div class="sub">'+prettyDate(u.paid_on)+' · '+esc(u.source)
-          + (u.suggested_confidence!=null ? ' · best guess '+u.suggested_confidence+'% confident' : '')+'</div>'
+      var opts = rows.filter(function(r){return r.p.status==="active"}).map(function(r){
+        var sel = (u.suggested_plan_id===r.p.id) ? " selected" : "";
+        return '<option value="'+esc(r.p.id)+'"'+sel+'>'+esc(r.p.customer.name)+' — '+esc(r.p.product)+' (owes '+money(r.pos.balance)+')</option>';
+      }).join("");
+      return '<div class="card unmatched"><div class="row"><div class="grow">'
+        + '<div class="amt">'+money(u.amount_cents)+'</div>'
+        + '<div class="sub">'+esc(u.counterparty_name||u.description||"no name on the transaction")+'</div>'
+        + '<div class="sub">'+shortDate(u.paid_on)+' · '+esc(u.source)
+        + (u.suggested_confidence!=null ? ' · best guess '+u.suggested_confidence+'% confident' : '')+'</div>'
         + '</div></div>'
         + '<label class="f"><span>Book against</span><select data-sel="'+esc(u.id)+'">'
-          + '<option value="">— choose a plan —</option>'+opts+'</select></label>'
+        + '<option value="">— choose a plan —</option>'+opts+'</select></label>'
         + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)">'
-          + '<input type="checkbox" data-alias="'+esc(u.id)+'" style="width:auto" checked> '
-          + 'Remember this name for that customer, so it matches by itself next time</label>'
-        + '<div class="row">'
-          + '<button class="btn primary sm" data-confirm="'+esc(u.id)+'">Confirm payment</button>'
-          + '<button class="btn sm ghost" data-dismiss="'+esc(u.id)+'">Not a customer payment</button>'
-        + '</div></div>';
+        + '<input type="checkbox" data-alias="'+esc(u.id)+'" style="width:auto" checked> '
+        + 'Remember this name for that customer, so it matches by itself next time</label>'
+        + '<div class="row"><button class="btn primary sm" data-confirm="'+esc(u.id)+'">Confirm payment</button>'
+        + '<button class="btn sm ghost" data-dismiss="'+esc(u.id)+'">Not a customer payment</button></div></div>';
     }).join("");
   }
   h += '</section>';
 
-  /* ---- plans ---- */
   var order = {past_due:0,due_today:1,due_soon:2,on_track:3,paid_off:4};
   rows.sort(function(a,b){ return order[a.pos.state]-order[b.pos.state]; });
-
   h += '<section><div class="sechead"><h2>Payment plans</h2>'
      + '<span class="count">'+rows.length+'</span></div><div class="tablewrap"><table>'
      + '<thead><tr><th>Customer</th><th class="num">Price</th><th class="num">Deposit</th>'
@@ -305,23 +377,20 @@ function render(){
     h += '<tr><td colspan="9"><div class="empty">No plans yet. Use <b>New plan</b> to add the first.</div></td></tr>';
   } else {
     h += rows.map(function(r){
-      return '<tr>'
-        + '<td><div class="who">'+esc(r.p.customer.name)+'</div>'
-          + '<div class="prod">'+esc(r.p.product)+'</div>'
-          + '<div class="bar"><i style="width:'+r.pos.pct+'%"></i></div></td>'
+      return '<tr><td><div class="who">'+esc(r.p.customer.name)+'</div>'
+        + '<div class="prod">'+esc(r.p.product)+'</div>'
+        + '<div class="bar"><i style="width:'+r.pos.pct+'%"></i></div></td>'
         + '<td class="num">'+money0(r.p.price_cents)+'</td>'
         + '<td class="num">'+money0(r.p.deposit_cents)+'</td>'
         + '<td class="num">'+money0(r.p.weekly_cents)+'</td>'
         + '<td class="num">'+r.pos.covered+'/'+r.pos.weeks+'</td>'
         + '<td class="num"><b>'+money0(r.pos.balance)+'</b></td>'
-        + '<td class="num" style="text-align:left">'+(r.pos.state==="paid_off"?"—":prettyDate(r.pos.nextDue))+'</td>'
+        + '<td class="num" style="text-align:left">'+(r.pos.state==="paid_off"?"—":shortDate(r.pos.nextDue))+'</td>'
         + '<td>'+chip(r.pos)+'</td>'
-        + '<td><button class="btn sm" data-payfor="'+esc(r.p.id)+'">Pay</button></td>'
-        + '</tr>';
+        + '<td><button class="btn sm" data-payfor="'+esc(r.p.id)+'">Pay</button></td></tr>';
     }).join("");
   }
   h += '</tbody></table></div></section></div>';
-
   document.getElementById("app").innerHTML = h;
   wire(rows);
 }
@@ -331,15 +400,33 @@ function tile(lab,val,note,alert){
     + '<div class="val">'+esc(val)+'</div><div class="note">'+esc(note)+'</div></div>';
 }
 
-/* ---------- actions ---------- */
+function copyText(txt){
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt); return true;
+    }
+  }catch(e){}
+  try{
+    var ta=document.createElement("textarea");
+    ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); document.body.removeChild(ta); return true;
+  }catch(e){ return false; }
+}
+
 function wire(rows){
-  document.getElementById("bOut").onclick = function(){
-    sb.auth.signOut().then(function(){ location.reload(); });
-  };
+  document.getElementById("bOut").onclick = function(){ sb.auth.signOut().then(function(){ location.reload(); }); };
   document.getElementById("bNew").onclick = function(){ newPlan(); };
   document.getElementById("bPay").onclick = function(){ recordPayment(rows, null); };
   document.getElementById("bSettings").onclick = function(){ openSettings(); };
-
+  Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function(b){
+    b.onclick = function(){
+      var box = document.getElementById("msg-"+b.getAttribute("data-copy"));
+      if(!box) return;
+      var ok = copyText(box.value);
+      toast(ok ? "Copied — paste it into your texts." : "Select the text and copy it manually.");
+    };
+  });
   Array.prototype.forEach.call(document.querySelectorAll("[data-payfor]"), function(b){
     b.onclick = function(){ recordPayment(rows, b.getAttribute("data-payfor")); };
   });
@@ -358,41 +445,29 @@ function confirmUnmatched(id){
   if(!planId){ toast("Pick which plan this belongs to."); return; }
   var saveAlias = document.querySelector('[data-alias="'+id+'"]').checked;
   var plan = state.plans.filter(function(p){return p.id===planId})[0];
-
   sb.from("payments").insert({
-    plan_id: planId,
-    amount_cents: u.amount_cents,
-    paid_on: u.paid_on,
-    source: u.source,
-    method: guessMethod(u.description||u.counterparty_name||""),
-    external_id: u.external_id,
-    match_confidence: 100,
-    matched_by: "human",
-    raw: u.raw
+    plan_id: planId, amount_cents: u.amount_cents, paid_on: u.paid_on,
+    source: u.source, method: guessMethod(u.description||u.counterparty_name||""),
+    external_id: u.external_id, match_confidence: 100, matched_by: "human", raw: u.raw
   }).select("id").single().then(function(res){
     if(res.error) throw res.error;
-    var chain = sb.from("unmatched_payments")
+    return sb.from("unmatched_payments")
       .update({ resolved_at: new Date().toISOString(), resolved_payment_id: res.data.id })
-      .eq("id", id);
-    return chain.then(function(){
-      if(saveAlias && u.counterparty_name && plan){
-        var have = plan.customer.aliases || [];
-        if(have.indexOf(u.counterparty_name) === -1){
-          return sb.from("customers")
-            .update({ aliases: have.concat([u.counterparty_name]) })
-            .eq("id", plan.customer.id);
+      .eq("id", id).then(function(){
+        if(saveAlias && u.counterparty_name && plan){
+          var have = plan.customer.aliases || [];
+          if(have.indexOf(u.counterparty_name) === -1){
+            return sb.from("customers").update({ aliases: have.concat([u.counterparty_name]) })
+              .eq("id", plan.customer.id);
+          }
         }
-      }
-    });
-  }).then(function(){
-    toast("Payment booked.");
-    return load();
-  }).catch(function(e){ toast("Could not book it: "+(e.message||e)); });
+      });
+  }).then(function(){ toast("Payment booked."); return load(); })
+    .catch(function(e){ toast("Could not book it: "+(e.message||e)); });
 }
 
 function dismissUnmatched(id){
-  sb.from("unmatched_payments")
-    .update({ dismissed_at: new Date().toISOString() }).eq("id", id)
+  sb.from("unmatched_payments").update({ dismissed_at: new Date().toISOString() }).eq("id", id)
     .then(function(){ toast("Set aside."); return load(); });
 }
 
@@ -405,59 +480,48 @@ function guessMethod(d){
   return "other";
 }
 
-/* ---------- overlays ---------- */
 var overlay = document.getElementById("overlay");
-function close(){ overlay.innerHTML=""; }
-overlay.addEventListener("click", function(e){
-  if(e.target.classList.contains("scrim")) close();
-});
-document.addEventListener("keydown", function(e){ if(e.key==="Escape") close(); });
+function closeOv(){ overlay.innerHTML=""; }
+overlay.addEventListener("click", function(e){ if(e.target.classList.contains("scrim")) closeOv(); });
+document.addEventListener("keydown", function(e){ if(e.key==="Escape") closeOv(); });
 
 function shell(title, body){
   overlay.innerHTML = '<div class="scrim"><div class="panel">'
     + '<div class="phead"><h3>'+esc(title)+'</h3>'
     + '<button class="btn sm ghost" id="xClose">Close</button></div>'
     + '<div class="pbody">'+body+'</div></div></div>';
-  document.getElementById("xClose").onclick = close;
+  document.getElementById("xClose").onclick = closeOv;
 }
 
 function methodOptions(sel){
+  var names = {zelle:"Zelle",cash_app:"Cash App",apple_pay:"Apple Pay",venmo:"Venmo",cash:"Cash",other:"Other"};
   return ["zelle","cash_app","apple_pay","venmo","cash","other"].map(function(m){
-    var label = {zelle:"Zelle",cash_app:"Cash App",apple_pay:"Apple Pay",
-                 venmo:"Venmo",cash:"Cash",other:"Other"}[m];
-    return '<option value="'+m+'"'+(sel===m?" selected":"")+'>'+label+'</option>';
+    return '<option value="'+m+'"'+(sel===m?" selected":"")+'>'+names[m]+'</option>';
   }).join("");
 }
 
-/* The Apple Cash path. Apple transfers to the bank in lump sums with no
-   names, so these can never be matched automatically — this form is the
-   only way they get recorded, and it is built to take ten seconds. */
 function recordPayment(rows, planId){
   var opts = rows.filter(function(r){return r.p.status==="active"}).map(function(r){
     return '<option value="'+esc(r.p.id)+'"'+(r.p.id===planId?" selected":"")+'>'
-      + esc(r.p.customer.name)+' — '+esc(r.p.product)
-      + ' (next '+money(r.pos.nextAmt)+')</option>';
+      + esc(r.p.customer.name)+' — '+esc(r.p.product)+' (next '+money(r.pos.nextAmt)+')</option>';
   }).join("");
-
   shell("Record a payment",
-    '<label class="f"><span>Plan</span><select id="rp_plan">'
-      + '<option value="">— choose —</option>'+opts+'</select></label>'
-    + '<div class="g2">'
-      + '<label class="f"><span>Amount</span><input type="number" id="rp_amt" step="0.01" min="0"></label>'
-      + '<label class="f"><span>Date received</span><input type="date" id="rp_date" value="'+todayISO()+'"></label>'
-    + '</div>'
-    + '<label class="f"><span>Method</span><select id="rp_method">'+methodOptions("apple_pay")+'</select></label>'
+    '<label class="f"><span>Plan</span><select id="rp_plan"><option value="">— choose —</option>'+opts+'</select></label>'
+    + '<div class="g2"><label class="f"><span>Amount</span><input type="number" id="rp_amt" step="0.01" min="0"></label>'
+    + '<label class="f"><span>Date received</span><input type="date" id="rp_date" value="'+todayISO()+'"></label></div>'
+    + '<label class="f"><span>Method</span><select id="rp_method">'+methodOptions("zelle")+'</select></label>'
     + '<button class="btn primary" id="rp_save">Record payment</button>'
-    + '<p class="hint">Apple Pay always comes through here — Apple moves money to the bank in lump sums with no sender name, so nothing can match it automatically. Zelle, Cash App and Venmo book themselves.</p>');
-
+    + '<p class="hint">Everything is recorded here for now. Once Plaid is connected, Zelle, Cash App and Venmo book themselves and only Apple Pay stays manual — Apple moves money to the bank in lump sums with no sender name.</p>');
   var sel = document.getElementById("rp_plan");
   function prefill(){
     var r = rows.filter(function(x){return x.p.id===sel.value})[0];
-    if(r && r.pos.nextAmt>0) document.getElementById("rp_amt").value = (r.pos.nextAmt/100).toFixed(2);
+    if(r){
+      var amt = r.pos.dueNow>0 ? r.pos.dueNow : r.pos.nextAmt;
+      if(amt>0) document.getElementById("rp_amt").value = (amt/100).toFixed(2);
+    }
   }
   sel.onchange = prefill;
   if(planId) prefill();
-
   document.getElementById("rp_save").onclick = function(){
     var pid = sel.value;
     var amt = Math.round(parseFloat(document.getElementById("rp_amt").value||"0")*100);
@@ -466,39 +530,30 @@ function recordPayment(rows, planId){
     sb.from("payments").insert({
       plan_id: pid, amount_cents: amt,
       paid_on: document.getElementById("rp_date").value || todayISO(),
-      source: "manual",
-      method: document.getElementById("rp_method").value,
-      external_id: "manual:"+pid+":"+Date.now(),
-      match_confidence: 100, matched_by: "human"
+      source: "manual", method: document.getElementById("rp_method").value,
+      external_id: "manual:"+pid+":"+Date.now(), match_confidence: 100, matched_by: "human"
     }).then(function(res){
       if(res.error) throw res.error;
-      close(); toast("Payment recorded."); return load();
+      closeOv(); toast("Payment recorded."); return load();
     }).catch(function(e){ toast("Could not save: "+(e.message||e)); });
   };
 }
 
 function newPlan(){
   shell("New payment plan",
-    '<div class="g2">'
-      + '<label class="f"><span>Customer name</span><input type="text" id="np_name"></label>'
-      + '<label class="f"><span>Mobile</span><input type="tel" id="np_phone" placeholder="+1210…"></label>'
-    + '</div>'
+    '<div class="g2"><label class="f"><span>Customer name</span><input type="text" id="np_name"></label>'
+    + '<label class="f"><span>Mobile</span><input type="tel" id="np_phone" placeholder="210-555-0134"></label></div>'
     + '<label class="f"><span>Product</span><input type="text" id="np_product"></label>'
-    + '<div class="g2">'
-      + '<label class="f"><span>Price</span><input type="number" id="np_price" step="0.01" min="0"></label>'
-      + '<label class="f"><span>Deposit paid</span><input type="number" id="np_dep" step="0.01" min="0"></label>'
-    + '</div>'
-    + '<div class="g2">'
-      + '<label class="f"><span>Weekly payment</span><input type="number" id="np_weekly" step="0.01" min="0"></label>'
-      + '<label class="f"><span>Deposit date</span><input type="date" id="np_start" value="'+todayISO()+'"></label>'
-    + '</div>'
+    + '<div class="g2"><label class="f"><span>Price</span><input type="number" id="np_price" step="0.01" min="0"></label>'
+    + '<label class="f"><span>Deposit paid</span><input type="number" id="np_dep" step="0.01" min="0"></label></div>'
+    + '<div class="g2"><label class="f"><span>Weekly payment</span><input type="number" id="np_weekly" step="0.01" min="0"></label>'
+    + '<label class="f"><span>Deposit date</span><input type="date" id="np_start" value="'+todayISO()+'"></label></div>'
     + '<div class="calc" id="np_calc"></div>'
     + '<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--muted)">'
-      + '<input type="checkbox" id="np_consent" style="width:auto;margin-top:3px"> '
-      + '<span>They signed the text-reminder consent line on the plan agreement. '
-      + 'Leave unticked and they will never be texted.</span></label>'
+    + '<input type="checkbox" id="np_consent" style="width:auto;margin-top:3px"> '
+    + '<span>They signed the text-reminder consent line on the plan agreement. '
+    + 'Leave unticked and they will never be texted automatically.</span></label>'
     + '<button class="btn primary" id="np_save">Create plan</button>');
-
   function calc(){
     var price = Math.round((parseFloat(document.getElementById("np_price").value)||0)*100);
     var dep   = Math.round((parseFloat(document.getElementById("np_dep").value)||0)*100);
@@ -510,13 +565,12 @@ function newPlan(){
       '<div><span class="k">Financed</span><span class="v">'+money(fin)+'</span></div>'
       + '<div><span class="k">Weeks</span><span class="v">'+weeks+'</span></div>'
       + '<div><span class="k">Final payment</span><span class="v">'+(weeks?money(last):"—")+'</span></div>'
-      + '<div><span class="k">Plan total</span><span class="v">'+money(dep+wk*(weeks>0?weeks-1:0)+last)+'</span></div>';
+      + '<div><span class="k">Plan total</span><span class="v">'+money(dep+fin)+'</span></div>';
   }
   ["np_price","np_dep","np_weekly"].forEach(function(id){
     document.getElementById(id).addEventListener("input", calc);
   });
   calc();
-
   document.getElementById("np_save").onclick = function(){
     var name = document.getElementById("np_name").value.trim();
     var price = Math.round((parseFloat(document.getElementById("np_price").value)||0)*100);
@@ -526,7 +580,6 @@ function newPlan(){
     if(!(price>0)){ toast("Add the price."); return; }
     if(dep < price && !(wk>0)){ toast("Add the weekly payment."); return; }
     var consent = document.getElementById("np_consent").checked;
-
     sb.from("customers").insert({
       name: name,
       phone_e164: document.getElementById("np_phone").value.trim() || null,
@@ -543,7 +596,7 @@ function newPlan(){
       });
     }).then(function(r){
       if(r && r.error) throw r.error;
-      close(); toast("Plan created."); return load();
+      closeOv(); toast("Plan created."); return load();
     }).catch(function(e){ toast("Could not save: "+(e.message||e)); });
   };
 }
@@ -552,20 +605,16 @@ function openSettings(){
   var s = state.settings||{};
   shell("Settings",
     '<p class="hint">These handles are written into every reminder. Leave one blank and it is left out.</p>'
-    + '<div class="g2">'
-      + '<label class="f"><span>Zelle</span><input type="text" id="s_z" value="'+esc(s.zelle_handle||"")+'"></label>'
-      + '<label class="f"><span>Cash App</span><input type="text" id="s_c" value="'+esc(s.cashapp_handle||"")+'"></label>'
-    + '</div><div class="g2">'
-      + '<label class="f"><span>Venmo</span><input type="text" id="s_v" value="'+esc(s.venmo_handle||"")+'"></label>'
-      + '<label class="f"><span>Apple Pay</span><input type="text" id="s_a" value="'+esc(s.applepay_handle||"")+'"></label>'
-    + '</div>'
+    + '<div class="g2"><label class="f"><span>Zelle</span><input type="text" id="s_z" value="'+esc(s.zelle_handle||"")+'"></label>'
+    + '<label class="f"><span>Cash App</span><input type="text" id="s_c" value="'+esc(s.cashapp_handle||"")+'"></label></div>'
+    + '<div class="g2"><label class="f"><span>Venmo</span><input type="text" id="s_v" value="'+esc(s.venmo_handle||"")+'"></label>'
+    + '<label class="f"><span>Apple Pay</span><input type="text" id="s_a" value="'+esc(s.applepay_handle||"")+'"></label></div>'
     + '<label class="f"><span>Remind this many days ahead</span>'
-      + '<input type="number" id="s_lead" min="0" max="14" value="'+(s.reminder_lead_days==null?3:s.reminder_lead_days)+'"></label>'
-    + '<div class="calc"><div><span class="k">Text reminders</span><span class="v">'
-      + (s.sms_enabled ? "ON" : "OFF") + '</span></div></div>'
-    + '<p class="hint">Reminders stay off until the Twilio campaign is approved. Turning them on is a deliberate database change, not a switch here — so nobody can enable texting by mis-clicking.</p>'
+    + '<input type="number" id="s_lead" min="0" max="14" value="'+(s.reminder_lead_days==null?3:s.reminder_lead_days)+'"></label>'
+    + '<div class="calc"><div><span class="k">Automatic texts</span><span class="v">'
+    + (s.sms_enabled ? "ON" : "OFF") + '</span></div></div>'
+    + '<p class="hint">Automatic sending stays off until the Twilio campaign is approved. Turning it on is a deliberate database change, not a switch here — so nobody enables texting by mis-clicking. Copying a message by hand works regardless.</p>'
     + '<button class="btn primary" id="s_save">Save settings</button>');
-
   document.getElementById("s_save").onclick = function(){
     sb.from("settings").update({
       zelle_handle: document.getElementById("s_z").value.trim() || null,
@@ -575,12 +624,11 @@ function openSettings(){
       reminder_lead_days: Math.max(0, Math.min(14, parseInt(document.getElementById("s_lead").value||"3",10)))
     }).eq("id", true).then(function(r){
       if(r.error){ toast("Could not save: "+r.error.message); return; }
-      close(); toast("Saved."); return load();
+      closeOv(); toast("Saved."); return load();
     });
   };
 }
 
-/* ---------- auth ---------- */
 function signInScreen(msg){
   document.getElementById("app").innerHTML =
     '<div class="signin"><h1 class="mark">J3 Payment Desk</h1>'
@@ -595,8 +643,7 @@ function signInScreen(msg){
         if(r.error){ toast(r.error.message); return; }
         document.getElementById("app").innerHTML =
           '<div class="signin"><h1 class="mark">Check your email</h1>'
-          + '<p class="hint">A sign-in link is on its way to ' + esc(email)
-          + '. Open it on this device.</p></div>';
+          + '<p class="hint">A sign-in link is on its way to ' + esc(email) + '. Open it on this device.</p></div>';
       });
   };
 }
@@ -606,18 +653,14 @@ function boot(){
     var session = r.data.session;
     if(!session){ signInScreen(); return; }
     state.user = session.user;
-    // RLS decides everything; app_admins is the whitelist.
     return sb.from("app_admins").select("user_id").eq("user_id", session.user.id).maybeSingle()
       .then(function(a){
         if(!a.data){
           document.getElementById("app").innerHTML =
             '<div class="signin"><h1 class="mark">Not on the list</h1>'
-            + '<p class="hint">This account is signed in but has no access to J3 payment data. '
-            + 'Ask Preston to add it.</p>'
+            + '<p class="hint">This account is signed in but has no access to J3 payment data.</p>'
             + '<button class="btn" id="si_out">Sign out</button></div>';
-          document.getElementById("si_out").onclick = function(){
-            sb.auth.signOut().then(function(){ location.reload(); });
-          };
+          document.getElementById("si_out").onclick = function(){ sb.auth.signOut().then(function(){ location.reload(); }); };
           return;
         }
         state.admin = true;
@@ -626,9 +669,7 @@ function boot(){
   }).catch(function(e){ signInScreen("Something went wrong: "+(e.message||e)); });
 }
 
-sb.auth.onAuthStateChange(function(evt){
-  if(evt === "SIGNED_IN") boot();
-});
+sb.auth.onAuthStateChange(function(evt){ if(evt === "SIGNED_IN") boot(); });
 boot();
 })();
 </script>
