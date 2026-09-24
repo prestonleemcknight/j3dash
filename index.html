@@ -41,6 +41,7 @@ header.top{position:sticky;top:0;z-index:40;background:var(--ground);border-bott
 .btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
 .btn.ghost:hover{background:var(--surface);color:var(--ink)}
 .btn.sm{padding:5px 10px;font-size:12.5px}
+.btn[disabled]{opacity:.55;cursor:default}
 .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:24px}
 .tile{background:var(--ground);padding:16px 18px}
 .tile .lab{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
@@ -86,6 +87,7 @@ th.num{text-align:right}
 .empty{padding:40px 20px;text-align:center;color:var(--muted)}
 .scrim{position:fixed;inset:0;background:rgba(10,10,10,.45);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;overflow:auto}
 .panel{background:var(--ground);border:1px solid var(--line);border-radius:10px;max-width:520px;width:100%;margin:auto}
+.panel.wide{max-width:640px}
 .phead{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
 .phead h3{font-family:var(--display);font-size:19px;font-weight:600;margin-right:auto}
 .pbody{padding:20px;display:grid;gap:14px}
@@ -118,7 +120,7 @@ label.f>span{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-tr
 "use strict";
 var CFG = window.__J3__;
 var sb = window.supabase.createClient(CFG.url, CFG.key);
-var state = { user:null, admin:false, plans:[], unmatched:[], settings:null };
+var state = { user:null, admin:false, token:null, plans:[], unmatched:[], settings:null };
 
 function money(c){
   c = Math.round(c||0);
@@ -156,11 +158,35 @@ function shortDate(iso){
   return new Date(Date.UTC(+p[0],+p[1]-1,+p[2]))
     .toLocaleDateString("en-US",{timeZone:"UTC",month:"short",day:"numeric"});
 }
+function timeAgo(iso){
+  if(!iso) return null;
+  var ms = Date.now() - new Date(iso).getTime();
+  var m = Math.floor(ms/60000);
+  if(m < 1) return "just now";
+  if(m < 60) return m+" min ago";
+  var h = Math.floor(m/60);
+  if(h < 24) return h+" hr"+(h===1?"":"s")+" ago";
+  var d = Math.floor(h/24);
+  return d+" day"+(d===1?"":"s")+" ago";
+}
 function firstName(n){ return String(n||"").trim().split(/\s+/)[0] || "there"; }
 function toast(m){
   var t=document.getElementById("toast");
   t.textContent=m; t.classList.add("on");
   clearTimeout(t._t); t._t=setTimeout(function(){t.classList.remove("on")},2400);
+}
+function copyText(txt){
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt); return true;
+    }
+  }catch(e){}
+  try{
+    var ta=document.createElement("textarea");
+    ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); document.body.removeChild(ta); return true;
+  }catch(e){ return false; }
 }
 
 function position(plan, payments, today, lead){
@@ -282,6 +308,7 @@ function render(){
   var h = '<header class="top"><div class="topin">'
      + '<span class="mark">J3 Payment Desk</span>'
      + '<button class="btn sm ghost" id="bSettings">Settings</button>'
+     + '<button class="btn sm ghost" id="bConn">Connections</button>'
      + '<button class="btn sm" id="bPay">Record payment</button>'
      + '<button class="btn primary" id="bNew">New plan</button>'
      + '<button class="btn sm ghost" id="bOut">Sign out</button>'
@@ -400,25 +427,12 @@ function tile(lab,val,note,alert){
     + '<div class="val">'+esc(val)+'</div><div class="note">'+esc(note)+'</div></div>';
 }
 
-function copyText(txt){
-  try{
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(txt); return true;
-    }
-  }catch(e){}
-  try{
-    var ta=document.createElement("textarea");
-    ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0";
-    document.body.appendChild(ta); ta.select();
-    document.execCommand("copy"); document.body.removeChild(ta); return true;
-  }catch(e){ return false; }
-}
-
 function wire(rows){
   document.getElementById("bOut").onclick = function(){ sb.auth.signOut().then(function(){ location.reload(); }); };
   document.getElementById("bNew").onclick = function(){ newPlan(); };
   document.getElementById("bPay").onclick = function(){ recordPayment(rows, null); };
   document.getElementById("bSettings").onclick = function(){ openSettings(); };
+  document.getElementById("bConn").onclick = function(){ openConnections(); };
   Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function(b){
     b.onclick = function(){
       var box = document.getElementById("msg-"+b.getAttribute("data-copy"));
@@ -485,8 +499,8 @@ function closeOv(){ overlay.innerHTML=""; }
 overlay.addEventListener("click", function(e){ if(e.target.classList.contains("scrim")) closeOv(); });
 document.addEventListener("keydown", function(e){ if(e.key==="Escape") closeOv(); });
 
-function shell(title, body){
-  overlay.innerHTML = '<div class="scrim"><div class="panel">'
+function shell(title, body, wide){
+  overlay.innerHTML = '<div class="scrim"><div class="panel'+(wide?" wide":"")+'">'
     + '<div class="phead"><h3>'+esc(title)+'</h3>'
     + '<button class="btn sm ghost" id="xClose">Close</button></div>'
     + '<div class="pbody">'+body+'</div></div></div>';
@@ -629,6 +643,181 @@ function openSettings(){
   };
 }
 
+/* ============================================================ Connections
+   One admin panel to connect Stripe, Plaid, Twilio and the Gmail reader.
+   Every key is checked against the provider live, before it is ever saved —
+   a typo shows up as a plain-English error right here instead of a broken
+   integration discovered days later. Nothing secret ever comes back to this
+   page; it only ever learns "connected to +1 210 …" or "connected to Acme". */
+
+function deskConnect(action, extra){
+  var body = { action: action };
+  for(var k in (extra||{})) body[k] = extra[k];
+  return fetch(CFG.url + "/functions/v1/desk-connect", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "apikey": CFG.key,
+      "authorization": "Bearer " + state.token
+    },
+    body: JSON.stringify(body)
+  }).then(function(res){
+    return res.json().then(function(j){
+      if(!res.ok) throw new Error(j.error || res.statusText);
+      return j;
+    });
+  });
+}
+
+var CONN_ORDER = [
+  ["stripe", "Stripe", "Apple Pay — exact match via payment links"],
+  ["plaid",  "Plaid",  "Zelle — bank feed sync"],
+  ["twilio", "Twilio", "Automatic text reminders"],
+  ["email",  "Gmail reader", "Cash App & Venmo — notification emails"]
+];
+
+function openConnections(){
+  sb.from("connections").select("*").then(function(r){
+    var map = {};
+    (r.data||[]).forEach(function(c){ map[c.provider]=c; });
+    renderConnections(map);
+  }).catch(function(){ renderConnections({}); });
+}
+
+function renderConnections(map){
+  var body = '<p class="hint">Connect each rail here. This can point at your own accounts to '
+    + 'get things running, then be disconnected and reconnected to Juan’s real accounts later '
+    + '— reconnecting never touches anything already booked.</p>'
+    + CONN_ORDER.map(function(o){ return connCard(o[0], o[1], o[2], map[o[0]]); }).join("");
+  shell("Connections", body, true);
+  wireConnections();
+}
+
+function connCard(key, label, sub, conn){
+  var connected = conn && conn.status === "connected";
+  var statusChip = connected
+    ? '<span class="chip ok">Connected — '+esc(conn.display||label)+'</span>'
+    : '<span class="chip warn">Not connected</span>';
+  var inner = "";
+
+  if(key === "stripe"){
+    inner = connected
+      ? '<button class="btn sm ghost" data-disc="stripe">Disconnect</button>'
+      : '<label class="f"><span>Secret key</span><input type="text" id="cn_stripe_key" placeholder="sk_live_… or sk_test_…"></label>'
+        + '<button class="btn primary sm" id="cn_stripe_go">Connect Stripe</button>'
+        + '<p class="hint">Creates the webhook automatically. Developers → API keys → Secret key in Stripe.</p>';
+
+  } else if(key === "plaid"){
+    inner = connected
+      ? '<button class="btn sm ghost" data-disc="plaid">Disconnect</button>'
+      : '<div class="g2"><label class="f"><span>client_id</span><input type="text" id="cn_plaid_id"></label>'
+        + '<label class="f"><span>secret</span><input type="text" id="cn_plaid_secret"></label></div>'
+        + '<label class="f"><span>Environment</span><select id="cn_plaid_env">'
+        + '<option value="production">Production</option><option value="sandbox">Sandbox (testing)</option></select></label>'
+        + '<button class="btn primary sm" id="cn_plaid_go">Connect Plaid</button>'
+        + '<p class="hint">Developers → Keys in the Plaid dashboard.</p>';
+
+  } else if(key === "twilio"){
+    inner = connected
+      ? '<button class="btn sm ghost" data-disc="twilio">Disconnect</button>'
+      : '<div class="g2"><label class="f"><span>Account SID</span><input type="text" id="cn_tw_sid" placeholder="AC…"></label>'
+        + '<label class="f"><span>Auth Token</span><input type="text" id="cn_tw_token"></label></div>'
+        + '<button class="btn sm" id="cn_tw_check">Check numbers</button>'
+        + '<div id="cn_tw_result"></div>';
+
+  } else if(key === "email"){
+    var seen = state.settings && state.settings.forwarder_last_seen_at ? timeAgo(state.settings.forwarder_last_seen_at) : null;
+    inner = '<div class="hint">'+(seen ? "Last checked in "+esc(seen)+"." : "Hasn’t checked in yet — install the script below.")+'</div>'
+      + '<button class="btn sm" id="cn_email_go">Get the paste-in script</button>'
+      + '<div id="cn_email_result"></div>';
+  }
+
+  return '<div class="card"><div class="row"><div class="grow"><b>'+esc(label)+'</b>'
+    + '<div class="sub">'+esc(sub)+'</div></div>'+statusChip+'</div>'
+    + '<div style="display:grid;gap:10px">'+inner+'</div></div>';
+}
+
+function wireConnections(){
+  var stripeGo = document.getElementById("cn_stripe_go");
+  if(stripeGo) stripeGo.onclick = function(){
+    var key = document.getElementById("cn_stripe_key").value.trim();
+    if(!key){ toast("Paste the Stripe secret key."); return; }
+    stripeGo.disabled = true; stripeGo.textContent = "Connecting…";
+    deskConnect("stripe_connect", {key:key}).then(function(r){
+      toast("Stripe connected — "+r.account); openConnections();
+    }).catch(function(e){ toast(e.message); stripeGo.disabled=false; stripeGo.textContent="Connect Stripe"; });
+  };
+
+  var plaidGo = document.getElementById("cn_plaid_go");
+  if(plaidGo) plaidGo.onclick = function(){
+    var clientId = document.getElementById("cn_plaid_id").value.trim();
+    var secret = document.getElementById("cn_plaid_secret").value.trim();
+    var env = document.getElementById("cn_plaid_env").value;
+    if(!clientId || !secret){ toast("Paste both Plaid values."); return; }
+    plaidGo.disabled = true; plaidGo.textContent = "Connecting…";
+    deskConnect("plaid_connect", {client_id:clientId, secret:secret, env:env}).then(function(r){
+      toast("Plaid connected ("+r.env+")"); openConnections();
+    }).catch(function(e){ toast(e.message); plaidGo.disabled=false; plaidGo.textContent="Connect Plaid"; });
+  };
+
+  var twCheck = document.getElementById("cn_tw_check");
+  if(twCheck) twCheck.onclick = function(){
+    var sid = document.getElementById("cn_tw_sid").value.trim();
+    var token = document.getElementById("cn_tw_token").value.trim();
+    if(!sid || !token){ toast("Paste both Twilio values."); return; }
+    twCheck.disabled = true; twCheck.textContent = "Checking…";
+    deskConnect("twilio_numbers", {sid:sid, token:token}).then(function(r){
+      twCheck.disabled = false; twCheck.textContent = "Check numbers";
+      var box = document.getElementById("cn_tw_result");
+      if(!r.numbers.length){
+        box.innerHTML = '<p class="hint">No SMS-capable numbers on this account yet — buy one in the Twilio console first.</p>';
+        return;
+      }
+      var trialWarn = r.trial ? '<p class="hint" style="color:var(--over)">This is a Twilio trial account — it can only text verified numbers. Upgrade it before relying on this for real customers.</p>' : "";
+      var opts = r.numbers.map(function(n){
+        return '<option value="'+esc(n.sid)+'">'+esc(n.number)+(n.name?" — "+esc(n.name):"")+'</option>';
+      }).join("");
+      box.innerHTML = trialWarn
+        + '<label class="f"><span>Send reminders from</span><select id="cn_tw_num">'+opts+'</select></label>'
+        + '<button class="btn primary sm" id="cn_tw_go">Connect this number</button>';
+      document.getElementById("cn_tw_go").onclick = function(){
+        var btn = document.getElementById("cn_tw_go");
+        btn.disabled = true; btn.textContent = "Connecting…";
+        deskConnect("twilio_connect", {sid:sid, token:token, number_sid:document.getElementById("cn_tw_num").value}).then(function(r2){
+          toast("Twilio connected — "+r2.number); openConnections();
+        }).catch(function(e){ toast(e.message); btn.disabled=false; btn.textContent="Connect this number"; });
+      };
+    }).catch(function(e){ toast(e.message); twCheck.disabled=false; twCheck.textContent="Check numbers"; });
+  };
+
+  var emailGo = document.getElementById("cn_email_go");
+  if(emailGo) emailGo.onclick = function(){
+    emailGo.disabled = true; emailGo.textContent = "Fetching…";
+    deskConnect("forwarder_script", {}).then(function(r){
+      emailGo.disabled = false; emailGo.textContent = "Get the paste-in script";
+      var box = document.getElementById("cn_email_result");
+      box.innerHTML = '<textarea class="msgbox" id="cn_email_script" rows="6" readonly style="font-family:var(--mono);font-size:11px">'+esc(r.script)+'</textarea>'
+        + '<button class="btn sm" id="cn_email_copy">Copy script</button>'
+        + '<p class="hint">Paste this whole thing into a new project at <b>script.google.com</b> — in the Gmail account that receives the payment notification emails. Pick <b>install</b> from the function dropdown next to Run, click Run, and allow access. It checks the inbox every 5 minutes from then on, with nothing left open or running.</p>';
+      document.getElementById("cn_email_copy").onclick = function(){
+        var ok = copyText(document.getElementById("cn_email_script").value);
+        toast(ok ? "Copied." : "Select the text and copy it manually.");
+      };
+    }).catch(function(e){ toast(e.message); emailGo.disabled=false; emailGo.textContent="Get the paste-in script"; });
+  };
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-disc]"), function(b){
+    b.onclick = function(){
+      var p = b.getAttribute("data-disc");
+      if(!confirm("Disconnect "+p+"? New payments on that rail stop booking until it's reconnected.")) return;
+      b.disabled = true;
+      deskConnect("disconnect", {provider:p}).then(function(){
+        toast(p+" disconnected."); openConnections();
+      }).catch(function(e){ toast(e.message); b.disabled=false; });
+    };
+  });
+}
+
 function signInScreen(msg){
   document.getElementById("app").innerHTML =
     '<div class="signin"><h1 class="mark">J3 Payment Desk</h1>'
@@ -653,6 +842,7 @@ function boot(){
     var session = r.data.session;
     if(!session){ signInScreen(); return; }
     state.user = session.user;
+    state.token = session.access_token;
     return sb.from("app_admins").select("user_id").eq("user_id", session.user.id).maybeSingle()
       .then(function(a){
         if(!a.data){
@@ -669,7 +859,10 @@ function boot(){
   }).catch(function(e){ signInScreen("Something went wrong: "+(e.message||e)); });
 }
 
-sb.auth.onAuthStateChange(function(evt){ if(evt === "SIGNED_IN") boot(); });
+sb.auth.onAuthStateChange(function(evt, session){
+  if(evt === "SIGNED_IN"){ if(session) state.token = session.access_token; boot(); }
+  if(evt === "TOKEN_REFRESHED" && session){ state.token = session.access_token; }
+});
 boot();
 })();
 </script>
